@@ -1,57 +1,16 @@
 package store
-
-import (
-	"database/sql"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	_ "modernc.org/sqlite"
-)
-
-type DB struct {
-	*sql.DB
-}
-
-func Open(dataDir string) (*DB, error) {
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("mkdir: %w", err)
-	}
-	dsn := filepath.Join(dataDir, "drifter.db") + "?_journal_mode=WAL&_busy_timeout=5000"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	if err := migrate(db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	return &DB{db}, nil
-}
-
-func migrate(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL UNIQUE,
-        description TEXT,
-        version TEXT DEFAULT '1.0.0',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-     );
-     CREATE TABLE IF NOT EXISTS pages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        sort_order INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-     );
-     CREATE TABLE IF NOT EXISTS openapi_specs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        spec TEXT NOT NULL,
-        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-     );`)
-	return err
-}
+import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{*sql.DB}
+type Flag struct{ID int64 `json:"id"`;Key string `json:"key"`;Description string `json:"description"`;Enabled bool `json:"enabled"`;Rollout int `json:"rollout_percent"`;Rules string `json:"rules"`;CreatedAt time.Time `json:"created_at"`;UpdatedAt time.Time `json:"updated_at"`}
+type EvalLog struct{ID int64 `json:"id"`;FlagKey string `json:"flag_key"`;UserID string `json:"user_id"`;Result bool `json:"result"`;EvaluatedAt time.Time `json:"evaluated_at"`}
+func Open(dataDir string)(*DB,error){if err:=os.MkdirAll(dataDir,0755);err!=nil{return nil,fmt.Errorf("mkdir: %w",err)};dsn:=filepath.Join(dataDir,"drifter.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);if err:=migrate(db);err!=nil{return nil,fmt.Errorf("migrate: %w",err)};return &DB{db},nil}
+func migrate(db *sql.DB)error{_,err:=db.Exec(`CREATE TABLE IF NOT EXISTS flags(id INTEGER PRIMARY KEY AUTOINCREMENT,key TEXT NOT NULL UNIQUE,description TEXT DEFAULT '',enabled INTEGER DEFAULT 0,rollout_percent INTEGER DEFAULT 100,rules TEXT DEFAULT '',created_at DATETIME DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS eval_log(id INTEGER PRIMARY KEY AUTOINCREMENT,flag_key TEXT NOT NULL,user_id TEXT DEFAULT '',result INTEGER NOT NULL,evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);return err}
+func(db *DB)ListFlags()([]Flag,error){rows,err:=db.Query(`SELECT id,key,description,enabled,rollout_percent,rules,created_at,updated_at FROM flags ORDER BY key`);if err!=nil{return nil,err};defer rows.Close();var out[]Flag;for rows.Next(){var f Flag;rows.Scan(&f.ID,&f.Key,&f.Description,&f.Enabled,&f.Rollout,&f.Rules,&f.CreatedAt,&f.UpdatedAt);out=append(out,f)};return out,nil}
+func(db *DB)CreateFlag(f *Flag)error{res,err:=db.Exec(`INSERT INTO flags(key,description,enabled,rollout_percent,rules)VALUES(?,?,?,?,?)`,f.Key,f.Description,f.Enabled,f.Rollout,f.Rules);if err!=nil{return err};f.ID,_=res.LastInsertId();return nil}
+func(db *DB)GetFlag(key string)(*Flag,error){f:=&Flag{};err:=db.QueryRow(`SELECT id,key,description,enabled,rollout_percent,rules,created_at,updated_at FROM flags WHERE key=?`,key).Scan(&f.ID,&f.Key,&f.Description,&f.Enabled,&f.Rollout,&f.Rules,&f.CreatedAt,&f.UpdatedAt);if err==sql.ErrNoRows{return nil,nil};return f,err}
+func(db *DB)UpdateFlag(f *Flag)error{_,err:=db.Exec(`UPDATE flags SET description=?,enabled=?,rollout_percent=?,rules=?,updated_at=CURRENT_TIMESTAMP WHERE key=?`,f.Description,f.Enabled,f.Rollout,f.Rules,f.Key);return err}
+func(db *DB)DeleteFlag(id int64)error{_,err:=db.Exec(`DELETE FROM flags WHERE id=?`,id);return err}
+func(db *DB)LogEval(flagKey,userID string,result bool){db.Exec(`INSERT INTO eval_log(flag_key,user_id,result)VALUES(?,?,?)`,flagKey,userID,result)}
+func(db *DB)GetAllFlags()(map[string]bool,error){rows,err:=db.Query(`SELECT key,enabled FROM flags`);if err!=nil{return nil,err};defer rows.Close();out:=map[string]bool{};for rows.Next(){var k string;var v bool;rows.Scan(&k,&v);out[k]=v};return out,nil}
+func(db *DB)CountFlags()(int,error){var n int;db.QueryRow(`SELECT COUNT(*) FROM flags`).Scan(&n);return n,nil}
+func(db *DB)CountEvals()(int,error){var n int;db.QueryRow(`SELECT COUNT(*) FROM eval_log`).Scan(&n);return n,nil}
