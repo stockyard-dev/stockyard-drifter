@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  drifter:
+    build: .
+    ports:
+      - "9130:9130"
+    environment:
+      - PORT=9130
+      - DATA_DIR=/data
+      - DRIFTER_LICENSE_KEY=
+    volumes:
+      - drifter_data:/data
+    restart: unless-stopped
+volumes:
+  drifter_data:
